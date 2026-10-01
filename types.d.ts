@@ -112,6 +112,15 @@ export interface Config {
   registerCommand?: boolean
   /** tools 服务存在时注册 sync_* 工具（默认 true）。 */
   registerTools?: boolean
+  /**
+   * 本机路径翻译：pull 时把远端规范 cwd 映到本机可解析目录，push 时映回。
+   * git 工作树始终保留规范路径，映射表在本机 dsh-session-sync/path-rewrite.json。
+   */
+  pathRewriteEnabled?: boolean
+  /** 自动分配本机工作区目录的父路径（pathRewriteEnabled 时必填）。 */
+  pathRewriteLocalRoot?: string
+  /** 种子映射：from=远端规范 cwd，to=本机目录。 */
+  pathRewriteRules?: Array<{ from: string, to: string }>
 }
 
 /** sync_status 工具规范结果。 */

@@ -51,3 +51,7 @@
         # Surface switches: register the /sync command and the sync_* tools.
         registerCommand: true
         registerTools: true
+        # 本机路径翻译（fork）：git 侧保留远端规范 cwd；本机映到可解析目录。
+        pathRewriteEnabled: false
+        pathRewriteLocalRoot: ''
+        pathRewriteRules: []

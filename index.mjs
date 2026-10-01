@@ -48,6 +48,7 @@ import {
   resolveSessionRoot,
   sessionIdOfForkPath,
 } from './lib/paths.mjs'
+import { createPathRewriter } from './lib/path-rewrite.mjs'
 import { GitBackend } from './lib/git.mjs'
 import { SyncEngine } from './lib/engine.mjs'
 import { EncryptedBackend, encryptTree, decryptTree, mergeTrees } from './lib/encrypted.mjs'
@@ -139,6 +140,13 @@ export const Config = Schema.object({
   commitEmail: Schema.string().default(DEFAULTS.COMMIT_EMAIL),
   registerCommand: Schema.boolean().default(DEFAULTS.REGISTER_COMMAND),
   registerTools: Schema.boolean().default(DEFAULTS.REGISTER_TOOLS),
+  // 本机路径翻译：git 侧保留远端规范 cwd；本机落盘映到可解析目录。
+  pathRewriteEnabled: Schema.boolean().default(DEFAULTS.PATH_REWRITE_ENABLED),
+  pathRewriteLocalRoot: Schema.string().default(DEFAULTS.PATH_REWRITE_LOCAL_ROOT),
+  pathRewriteRules: Schema.array(Schema.object({
+    from: Schema.string().required(),
+    to: Schema.string().required(),
+  })).default(DEFAULTS.PATH_REWRITE_RULES),
 })
 
 /**
@@ -169,6 +177,11 @@ export function resolveConfig(config = {}) {
     commitEmail: config.commitEmail ?? DEFAULTS.COMMIT_EMAIL,
     registerCommand: config.registerCommand ?? DEFAULTS.REGISTER_COMMAND,
     registerTools: config.registerTools ?? DEFAULTS.REGISTER_TOOLS,
+    pathRewriteEnabled: config.pathRewriteEnabled ?? DEFAULTS.PATH_REWRITE_ENABLED,
+    pathRewriteLocalRoot: config.pathRewriteLocalRoot ?? DEFAULTS.PATH_REWRITE_LOCAL_ROOT,
+    pathRewriteRules: Array.isArray(config.pathRewriteRules)
+      ? config.pathRewriteRules
+      : DEFAULTS.PATH_REWRITE_RULES,
   }
   if (resolved.enabled === false) return resolved
   if (!Object.values(BACKENDS).includes(/** @type {any} */ (resolved.backend))) {
@@ -215,6 +228,23 @@ export function resolveConfig(config = {}) {
   }
   if (resolved.repoDir === '' && process.env.DSH_HOME === undefined) {
     throw badConfig('repoDir is empty and $DSH_HOME is not set; run under dsh or set repoDir explicitly')
+  }
+  if (typeof resolved.pathRewriteEnabled !== 'boolean') {
+    throw badConfig('pathRewriteEnabled must be a boolean')
+  }
+  if (typeof resolved.pathRewriteLocalRoot !== 'string') {
+    throw badConfig('pathRewriteLocalRoot must be a string')
+  }
+  if (resolved.pathRewriteEnabled && resolved.pathRewriteLocalRoot.trim() === '') {
+    throw badConfig('pathRewriteLocalRoot must be non-empty when pathRewriteEnabled is true')
+  }
+  if (!Array.isArray(resolved.pathRewriteRules)) {
+    throw badConfig('pathRewriteRules must be an array')
+  }
+  for (const rule of resolved.pathRewriteRules) {
+    if (typeof rule?.from !== 'string' || rule.from.length === 0 || typeof rule?.to !== 'string' || rule.to.length === 0) {
+      throw badConfig('pathRewriteRules entries must be { from: non-empty string, to: non-empty string }')
+    }
   }
   return resolved
 }
@@ -662,6 +692,7 @@ export function apply(ctx, config = {}) {
     reportError,
     logger,
     onForks: (forkPaths) => handleForks(forkPaths),
+    rewriter: createPathRewriter(resolved, process.env.DSH_HOME, logger),
   }
   const engine = resolved.backend === BACKENDS.ENCRYPTED
     ? new EncryptedBackend({
